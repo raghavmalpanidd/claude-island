@@ -446,6 +446,13 @@ struct ChatView: View {
 
     private func focusTerminal() {
         Task {
+            // Try IntelliJ first
+            if IntelliJController.shared.isAvailable {
+                _ = await IntelliJController.shared.focusProject(cwd: session.cwd)
+                return
+            }
+
+            // Fall back to Yabai
             if let pid = session.pid {
                 _ = await YabaiController.shared.focusWindow(forClaudePid: pid)
             } else {
@@ -989,6 +996,10 @@ struct ChatInteractivePromptBar: View {
     @State private var showContent = false
     @State private var showButton = false
 
+    private var isEnabled: Bool {
+        IntelliJController.shared.isAvailable || isInTmux
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             // Tool info - same style as approval bar
@@ -1006,9 +1017,9 @@ struct ChatInteractivePromptBar: View {
 
             Spacer()
 
-            // Terminal button on right (similar to Allow button)
+            // Terminal/IDE button on right (similar to Allow button)
             Button {
-                if isInTmux {
+                if isEnabled {
                     onGoToTerminal()
                 }
             } label: {
@@ -1018,10 +1029,10 @@ struct ChatInteractivePromptBar: View {
                     Text("Terminal")
                         .font(.system(size: 13, weight: .medium))
                 }
-                .foregroundColor(isInTmux ? .black : .white.opacity(0.4))
+                .foregroundColor(isEnabled ? .black : .white.opacity(0.4))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(isInTmux ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
+                .background(isEnabled ? Color.white.opacity(0.95) : Color.white.opacity(0.1))
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)

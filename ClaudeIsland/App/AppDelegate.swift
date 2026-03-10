@@ -41,6 +41,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Eagerly initialize IntelliJ detection
+        _ = IntelliJController.shared
+
         Mixpanel.initialize(token: "49814c1436104ed108f3fc4735228496")
 
         let distinctId = getOrCreateDistinctId()

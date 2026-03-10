@@ -258,6 +258,7 @@ struct InstanceRow: View {
             } else if isWaitingForApproval {
                 InlineApprovalButtons(
                     onChat: onChat,
+                    onFocus: isIntelliJAvailable ? onFocus : nil,
                     onApprove: onApprove,
                     onReject: onReject
                 )
@@ -339,6 +340,7 @@ struct InstanceRow: View {
 /// Compact inline approval buttons with staggered animation
 struct InlineApprovalButtons: View {
     let onChat: () -> Void
+    var onFocus: (() -> Void)? = nil
     let onApprove: () -> Void
     let onReject: () -> Void
 
@@ -354,6 +356,15 @@ struct InlineApprovalButtons: View {
             }
             .opacity(showChatButton ? 1 : 0)
             .scaleEffect(showChatButton ? 1 : 0.8)
+
+            // Focus IDE button
+            if let onFocus {
+                IconButton(icon: "eye") {
+                    onFocus()
+                }
+                .opacity(showChatButton ? 1 : 0)
+                .scaleEffect(showChatButton ? 1 : 0.8)
+            }
 
             Button {
                 onReject()

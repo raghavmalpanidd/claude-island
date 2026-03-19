@@ -88,15 +88,9 @@ struct ClaudeInstancesView: View {
     // MARK: - Actions
 
     private func focusSession(_ session: SessionState) {
-        Task {
-            // Try IntelliJ first (works without tmux)
-            if IntelliJController.shared.isAvailable {
-                _ = await IntelliJController.shared.focusProject(cwd: session.cwd)
-                return
-            }
+        guard session.isInTmux else { return }
 
-            // Fall back to Yabai (requires tmux)
-            guard session.isInTmux else { return }
+        Task {
             if let pid = session.pid {
                 _ = await YabaiController.shared.focusWindow(forClaudePid: pid)
             } else {
@@ -135,7 +129,6 @@ struct InstanceRow: View {
     @State private var isHovered = false
     @State private var spinnerPhase = 0
     @State private var isYabaiAvailable = false
-    private var isIntelliJAvailable: Bool { IntelliJController.shared.isAvailable }
 
     private let claudeOrange = Color(red: 0.85, green: 0.47, blue: 0.34)
     private let spinnerSymbols = ["·", "✢", "✳", "∗", "✻", "✽"]
@@ -241,13 +234,8 @@ struct InstanceRow: View {
                         onChat()
                     }
 
-                    // Go to IDE/Terminal button
-                    if isIntelliJAvailable {
-                        TerminalButton(
-                            isEnabled: true,
-                            onTap: { onFocus() }
-                        )
-                    } else if isYabaiAvailable {
+                    // Go to Terminal button (only if yabai available)
+                    if isYabaiAvailable {
                         TerminalButton(
                             isEnabled: session.isInTmux,
                             onTap: { onFocus() }
@@ -258,7 +246,6 @@ struct InstanceRow: View {
             } else if isWaitingForApproval {
                 InlineApprovalButtons(
                     onChat: onChat,
-                    onFocus: isIntelliJAvailable ? onFocus : nil,
                     onApprove: onApprove,
                     onReject: onReject
                 )
@@ -270,8 +257,8 @@ struct InstanceRow: View {
                         onChat()
                     }
 
-                    // Focus icon (IntelliJ or Yabai+tmux)
-                    if isIntelliJAvailable || (session.isInTmux && isYabaiAvailable) {
+                    // Focus icon (only for tmux instances with yabai)
+                    if session.isInTmux && isYabaiAvailable {
                         IconButton(icon: "eye") {
                             onFocus()
                         }
@@ -340,7 +327,6 @@ struct InstanceRow: View {
 /// Compact inline approval buttons with staggered animation
 struct InlineApprovalButtons: View {
     let onChat: () -> Void
-    var onFocus: (() -> Void)? = nil
     let onApprove: () -> Void
     let onReject: () -> Void
 
@@ -356,15 +342,6 @@ struct InlineApprovalButtons: View {
             }
             .opacity(showChatButton ? 1 : 0)
             .scaleEffect(showChatButton ? 1 : 0.8)
-
-            // Focus IDE button
-            if let onFocus {
-                IconButton(icon: "eye") {
-                    onFocus()
-                }
-                .opacity(showChatButton ? 1 : 0)
-                .scaleEffect(showChatButton ? 1 : 0.8)
-            }
 
             Button {
                 onReject()

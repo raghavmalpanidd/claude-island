@@ -6,6 +6,9 @@
 //
 
 import Foundation
+import os.log
+
+private let logger = Logger(subsystem: "com.claudeisland", category: "YabaiFocus")
 
 /// Controller for yabai window management
 actor YabaiController {
@@ -16,7 +19,8 @@ actor YabaiController {
     // MARK: - Public API
 
     /// Focus the terminal window for a given Claude PID (tmux only)
-    func focusWindow(forClaudePid claudePid: Int) async -> Bool {
+    /// projectName is used for multi-window apps like IntelliJ to find the right window.
+    func focusWindow(forClaudePid claudePid: Int, projectName: String? = nil) async -> Bool {
         guard await WindowFinder.shared.isYabaiAvailable() else {
             return false
         }
@@ -24,7 +28,7 @@ actor YabaiController {
         let windows = await WindowFinder.shared.getAllWindows()
         let tree = ProcessTreeBuilder.shared.buildTree()
 
-        return await focusTmuxInstance(claudePid: claudePid, tree: tree, windows: windows)
+        return await focusTmuxInstance(claudePid: claudePid, tree: tree, windows: windows, projectName: projectName)
     }
 
     /// Focus the terminal window for a given working directory (tmux only, fallback)
@@ -36,21 +40,56 @@ actor YabaiController {
 
     // MARK: - Private Implementation
 
-    private func focusTmuxInstance(claudePid: Int, tree: [Int: ProcessInfo], windows: [YabaiWindow]) async -> Bool {
+    private func focusTmuxInstance(claudePid: Int, tree: [Int: ProcessInfo], windows: [YabaiWindow], projectName: String? = nil) async -> Bool {
         // Find the tmux target for this Claude process
         guard let target = await TmuxController.shared.findTmuxTarget(forClaudePid: claudePid) else {
+            logger.error("No tmux target found for PID \(claudePid)")
             return false
         }
+
+        logger.info("Found tmux target: \(target.session, privacy: .public):\(target.window).\(target.pane)")
 
         // Switch to the correct pane
         _ = await TmuxController.shared.switchToPane(target: target)
 
         // Find terminal for this specific tmux session
         if let terminalPid = await findTmuxClientTerminal(forSession: target.session, tree: tree, windows: windows) {
+            logger.info("Found terminal PID: \(terminalPid)")
+
+            let terminalWindows = windows.filter { $0.pid == terminalPid }
+
+            // For apps like IntelliJ that have many windows under one PID,
+            // extract project name from tmux session name (e.g. "claude-island_87883" → "claude-island")
+            // and match the window whose title starts with it.
+            if terminalWindows.count > 1 {
+                let name = projectNameFromTmuxSession(target.session)
+                logger.info("Multi-window PID \(terminalPid): \(terminalWindows.count) windows — matching project '\(name ?? "?", privacy: .public)'")
+
+                if let name = name,
+                   let match = terminalWindows.first(where: { $0.title.hasPrefix(name) }) {
+                    logger.info("Matched window id=\(match.id) title='\(match.title.prefix(60), privacy: .public)'")
+                    return await WindowFocuser.shared.focusWindow(id: match.id)
+                }
+                logger.error("No window title matched for project '\(name ?? "?", privacy: .public)'")
+            }
             return await WindowFocuser.shared.focusTmuxWindow(terminalPid: terminalPid, windows: windows)
         }
 
+        logger.error("No terminal PID found for tmux session '\(target.session, privacy: .public)'")
         return false
+    }
+
+    /// Extract project name from tmux session name.
+    /// Session names follow the pattern "projectname_PID" (e.g. "claude-island_87883").
+    /// Falls back to the full session name if no underscore-PID suffix found.
+    private nonisolated func projectNameFromTmuxSession(_ sessionName: String) -> String? {
+        // Find the last underscore followed by digits (the PID suffix)
+        if let range = sessionName.range(of: "_\\d+$", options: .regularExpression) {
+            let name = String(sessionName[sessionName.startIndex..<range.lowerBound])
+            return name.isEmpty ? nil : name
+        }
+        // No PID suffix — use the session name as-is
+        return sessionName
     }
 
     private func focusWindow(forWorkingDir workingDir: String) async -> Bool {
@@ -95,7 +134,7 @@ actor YabaiController {
 
     /// Check if command is a terminal (nonisolated helper to avoid MainActor access)
     private nonisolated func isTerminalProcess(_ command: String) -> Bool {
-        let terminalCommands = ["Terminal", "iTerm", "iTerm2", "Alacritty", "kitty", "WezTerm", "wezterm-gui", "Hyper"]
+        let terminalCommands = ["Terminal", "iTerm", "iTerm2", "Alacritty", "kitty", "WezTerm", "wezterm-gui", "Hyper", "idea", "IntelliJ"]
         return terminalCommands.contains { command.contains($0) }
     }
 
